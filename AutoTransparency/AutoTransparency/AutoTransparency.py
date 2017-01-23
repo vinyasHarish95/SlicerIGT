@@ -54,7 +54,7 @@ class AutoTransparencyWidget(ScriptedLoadableModuleWidget):
     parametersFormLayout = qt.QFormLayout(parametersCollapsibleButton)
 
     #
-    # input target model selector
+    # Input target model selector
     #
     self.targetSelector = slicer.qMRMLNodeComboBox()
     self.targetSelector.nodeTypes = ["vtkMRMLModelNode"]
@@ -69,7 +69,7 @@ class AutoTransparencyWidget(ScriptedLoadableModuleWidget):
     parametersFormLayout.addRow("Target model: ", self.targetSelector)
 
     #
-    # input moving model selector
+    # Input moving model selector
     #
     self.movingModelSelector = slicer.qMRMLNodeComboBox()
     self.movingModelSelector.nodeTypes = ["vtkMRMLModelNode"]
@@ -85,22 +85,15 @@ class AutoTransparencyWidget(ScriptedLoadableModuleWidget):
     parametersFormLayout.addRow("Moving model: ", self.movingModelSelector)
 
     #
-    # check box to enable autotransparency throughout Slicer
+    # Check box to enable autotransparency throughout Slicer
     #
     self.enableAutoTransparencyFlagCheckBox = qt.QCheckBox()
     self.enableAutoTransparencyFlagCheckBox.checked = 0
     self.enableAutoTransparencyFlagCheckBox.setToolTip("If checked, enable AutoTransparency.")
     parametersFormLayout.addRow("Enable AutoTransparency", self.enableAutoTransparencyFlagCheckBox)
 
-    # connections
-    self.inputSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelect)
-    self.outputSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelect)
-
     # Add vertical spacer
     self.layout.addStretch(1)
-
-    # Refresh Apply button state
-    self.onSelect()
 
   def cleanup(self):
     pass
@@ -135,25 +128,35 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
 
   def test_AutoTransparency1(self):
     self.delayDisplay("Starting the test")
-    #
-    # first, get some data
-    #
-    import urllib
-    downloads = (
-        ('http://slicer.kitware.com/midas3/download?items=5767', 'FA.nrrd', slicer.util.loadVolume),
-        )
 
-    for url,name,loader in downloads:
-      filePath = slicer.app.temporaryPath + '/' + name
-      if not os.path.exists(filePath) or os.stat(filePath).st_size == 0:
-        logging.info('Requesting download %s from %s...\n' % (name, url))
-        urllib.urlretrieve(url, filePath)
-      if loader:
-        logging.info('Loading %s...' % (name,))
-        loader(filePath)
-    self.delayDisplay('Finished with download and loading')
+    #Create a needle model
+    needleModelNode = slicer.modules.createmodels.logic().CreateNeedle(80,3.0,7,0)
 
-    volumeNode = slicer.util.getNode(pattern="FA")
-    logic = AutoTransparencyLogic()
-    self.assertIsNotNone( logic.hasImageData(volumeNode) )
+    #Create transform node and set transform of transform node
+    needleModelToRas = slicer.vtkMRMLLinearTransformNode()
+    needleModelToRas.SetName('NeedleModelToRas')
+    slicer.mrmlScene.AddNode(needleModelToRas)
+    needleModelToRasTransform = vtk.vtkTransform()
+    needleModelToRasTransform.PreMultiply()
+    needleModelToRasTransform.Translate(0, 100, 0)
+    needleModelToRasTransform.RotateX(30)
+    needleModelToRasTransform.Update()
+    needleModelToRas.SetAndObserveTransformToParent(needleModelToRasTransform)
+
+    #Transform the needle model
+    needleModelNode.SetAndObserveTransformNodeID(needleModelToRas.GetID())
+
+    #Create a sphere tumor model
+    tumorModelNode = slicer.modules.createmodels.logic().CreateSphere(10)
+    tumorModelNode.GetDisplayNode().SetColor(0,1,0) #Green
+
+    #Create transform node and set transform of transform node
+    tumorModelToRas = slicer.vtkMRMLLinearTransformNode()
+    tumorModelToRas.SetName('tumorModelToRas')
+    slicer.mrmlScene.AddNode(tumorModelToRas)
+    tumorModelToRasTransform = vtk.vtkTransform()
+    tumorModelToRas.SetAndObserveTransformToParent(tumorModelToRasTransform)
+
+    #Transform the tumor model
+    tumorModelNode.SetAndObserveTransformNodeID(tumorModelToRas.GetID())
     self.delayDisplay('Test passed!')
