@@ -19,7 +19,7 @@ class AutoTransparency(ScriptedLoadableModule):
     self.parent.title = "AutoTransparency"
     self.parent.categories = ["IGT"]
     self.parent.dependencies = []
-    self.parent.contributors = ["Vinyas Harish, Tamas Ungi (PerkLab, Queen's)"]
+    self.parent.contributors = ["Vinyas Harish, Tamas Ungi, Andras Lasso (PerkLab, Queen's)"]
     self.parent.helpText = """
     Prevent the occlusion of a model by adaptively changing the transparency of
     other models in the scene.
@@ -129,22 +129,27 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
   def test_AutoTransparency1(self):
     self.delayDisplay("Starting the test")
 
-    #Create a needle model
-    needleModelNode = slicer.modules.createmodels.logic().CreateNeedle(80,3.0,7,0)
+    #Create a cautery model
+    moduleDirectoryPath = slicer.modules.autotransparency.path.replace('AutoTransparency.py', '')
+    slicer.util.loadModel(qt.QDir.toNativeSeparators(moduleDirectoryPath + 'Resources/CAD/Cautery.stl'))
+    cauteryModelNode = slicer.util.getNode(pattern = "Cautery")
+    cauteryModelNode.GetDisplayNode().SetColor(1.0, 1.0, 0)
+    cauteryModelNode.SetName("CauteryModel")
+    cauteryModelNode.GetDisplayNode().SliceIntersectionVisibilityOn()
 
     #Create transform node and set transform of transform node
-    needleModelToRas = slicer.vtkMRMLLinearTransformNode()
-    needleModelToRas.SetName('NeedleModelToRas')
-    slicer.mrmlScene.AddNode(needleModelToRas)
-    needleModelToRasTransform = vtk.vtkTransform()
-    needleModelToRasTransform.PreMultiply()
-    needleModelToRasTransform.Translate(0, 100, 0)
-    needleModelToRasTransform.RotateX(30)
-    needleModelToRasTransform.Update()
-    needleModelToRas.SetAndObserveTransformToParent(needleModelToRasTransform)
+    cauteryModelToRas = slicer.vtkMRMLLinearTransformNode()
+    cauteryModelToRas.SetName('CauteryModelToRas')
+    slicer.mrmlScene.AddNode(cauteryModelToRas)
+    cauteryModelToRasTransform = vtk.vtkTransform()
+    cauteryModelToRasTransform.PreMultiply()
+    cauteryModelToRasTransform.Translate(0, 100, 0)
+    cauteryModelToRasTransform.RotateX(30)
+    cauteryModelToRasTransform.Update()
+    cauteryModelToRas.SetAndObserveTransformToParent(cauteryModelToRasTransform)
 
     #Transform the needle model
-    needleModelNode.SetAndObserveTransformNodeID(needleModelToRas.GetID())
+    cauteryModelNode.SetAndObserveTransformNodeID(cauteryModelToRas.GetID())
 
     #Create a sphere tumor model
     tumorModelNode = slicer.modules.createmodels.logic().CreateSphere(10)
