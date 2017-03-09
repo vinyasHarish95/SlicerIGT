@@ -4,6 +4,7 @@ import vtk, qt, ctk, slicer
 from slicer.ScriptedLoadableModule import *
 import logging
 import math
+import numpy as np
 
 #-------------------------------------------------------------------------------
 #
@@ -106,9 +107,9 @@ class AutoTransparencyWidget(ScriptedLoadableModuleWidget):
 #-------------------------------------------------------------------------------
 
 class AutoTransparencyLogic(ScriptedLoadableModuleLogic):
-
   def logicMethod(self):
     pass
+
 
 #-------------------------------------------------------------------------------
 #
@@ -169,9 +170,9 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
 
     #Compute the center of mass of the target model node
     tumorModel = slicer.mrmlScene.GetNodeByID('vtkMRMLModelNode5')
-    tumorModelPolydata = tumorModel.GetPolyData()
+    tumorModelPolyData = tumorModel.GetPolyData()
     centerFilter = vtk.vtkCenterOfMass()
-    centerFilter.SetInputData(tumorModelPolydata)
+    centerFilter.SetInputData(tumorModelPolyData)
     centerFilter.SetUseScalarsAsWeights(False)
     centerFilter.Update()
 
@@ -196,18 +197,18 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
 
     #Find dMax
     dMax = 0
-    numPoints = tumorModelPolydata.GetNumberOfPoints()
+    numPoints = tumorModelPolyData.GetNumberOfPoints()
     pointTupleArray = []
     #Create array of all points that make up the model
     for point in range(numPoints):
-      pointTupleArray.append(tumorModelPolydata.GetPoint(point))
+      pointTupleArray.append(tumorModelPolyData.GetPoint(point))
 
     for point in pointTupleArray:
       dist = math.sqrt(vtk.vtkMath.Distance2BetweenPoints(point,center))
       if (dist > dMax):
         dMax = dist
 
-    #Find the angle, α
+    #Find the angle, alpha
     l = math.sqrt(vtk.vtkMath.Distance2BetweenPoints(pos,center))
     alpha = math.asin(dMax/l)
 
@@ -234,5 +235,50 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
       slicer.mrmlScene.AddNode(displayNode)
       displayNode.SetName('ConeModelDisplay')
       coneModelNodeToUpdate.SetAndObserveDisplayNodeID(displayNode.GetID())
-    
+
+    #Find the tip of cone and the center of the base of the cone, points which
+    #will be used as inputs for the landmark registration
+    coneModelPolyData = coneModelNode.GetPolyData()
+    numPointsInCone = coneModelPolyData.GetNumberOfPoints()
+    conePointsTupleArray = []
+    for point in range(numPointsInCone):
+      conePointsTupleArray.append(coneModelPolyData.GetPoint(point))
+    coneTip = conePointsTupleArray[0]
+    #Place fiducial at cone tip
+    markupsLogic = slicer.modules.markups.logic()
+    markupsLogic.SetDefaultMarkupsDisplayNodeGlyphScale(5.0)
+    markupsLogic.SetDefaultMarkupsDisplayNodeColor(0.0, 0.0, 0.0)
+    markupsLogic.SetDefaultMarkupsDisplayNodeSelectedColor(0.0, 0.0, 0.0)
+    markupsLogic.AddNewFiducialNode()
+    markupsLogic.AddFiducial(coneTip[0], coneTip[1], coneTip[2])
+    fidList = slicer.util.getNode('F')
+    fidList.SetNthFiducialLabel(0, 'Cone Tip')
+
+    #Compute center of mass of points of cone base
+    coneBasePoints = []
+    for index in range(1, numPointsInCone):
+      point = conePointsTupleArray[index]
+      coneBasePoints.append(point)
+    xSum, ySum, zSum = 0, 0, 0
+    for (x,y,z) in coneBasePoints:
+      xSum += x
+      ySum += y
+      zSum += z
+    coneBaseCenter_x = xSum / cone.GetResolution()
+    coneBaseCenter_y = ySum / cone.GetResolution()
+    coneBaseCenter_z = zSum / cone.GetResolution()
+    #Place fiducial at cone base
+    markupsLogic.AddFiducial(coneBaseCenter_x, coneBaseCenter_y, coneBaseCenter_z)
+    fidList.SetNthFiducialLabel(1, 'Cone Base Center')
+
+    #Create a third point for use in landmark registration, perpendicular to a
+    #line drawn in the AP plane of the cone tip
+    pointCoplanarToConeTip = (coneTip[0], coneTip[1] + 100 , coneTip[2]) #Add arbitrary distance along plane
+    markupsLogic.AddFiducial(pointCoplanarToConeTip[0],pointCoplanarToConeTip[1],pointCoplanarToConeTip[2])
+    midpointOfConeTipLine = ((coneTip[0] + pointCoplanarToConeTip[0])/2 , (coneTip[1] + pointCoplanarToConeTip[1])/2, (coneTip[2] + pointCoplanarToConeTip[2])/2)
+    markupsLogic.AddFiducial(midpointOfConeTipLine[0],midpointOfConeTipLine[1],midpointOfConeTipLine[2])
+    perpendicularPoint = (midpointOfConeTipLine[0], midpointOfConeTipLine[1], midpointOfConeTipLine[2] + 100)
+    markupsLogic.AddFiducial(perpendicularPoint[0],perpendicularPoint[1],perpendicularPoint[2])
+
+
     self.delayDisplay('Test passed!')
