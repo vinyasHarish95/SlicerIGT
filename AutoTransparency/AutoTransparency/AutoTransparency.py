@@ -260,9 +260,14 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
     """Run as few or as many tests as needed here.
     """
     self.setUp()
-    self.test_AutoTransparency()
+    self.test_NoCollisions()
+    #if true:
+      #slicer.mrmlScene.Clear(0)
+    #self.test_Collisions()
+    #if true:
+      #slicer.mrmlScene.Clear(0)
 
-  def createSampleModels(self):
+  def createSampleModels_NoCollisions(self):
     #Create a cautery model
     moduleDirectoryPath = slicer.modules.autotransparency.path.replace('AutoTransparency.py', '')
     slicer.util.loadModel(qt.QDir.toNativeSeparators(moduleDirectoryPath + 'Resources/CAD/Cautery.stl'))
@@ -300,11 +305,11 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
     #Transform the tumor model
     self.tumorModelNode.SetAndObserveTransformNodeID(tumorModelToRas.GetID())
 
-  def test_AutoTransparency(self):
+  def test_NoCollisions(self):
     self.delayDisplay("Starting the test")
     #Create models of needle and cautery, in a position that does not represent
     #collision
-    self.createSampleModels()
+    self.createSampleModels_NoCollisions()
 
     #Compute the center of mass of the target model node
     tumorModel = slicer.mrmlScene.GetNodeByID('vtkMRMLModelNode5')
