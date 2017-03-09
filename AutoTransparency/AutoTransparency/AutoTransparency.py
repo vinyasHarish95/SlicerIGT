@@ -3,6 +3,7 @@ import unittest
 import vtk, qt, ctk, slicer
 from slicer.ScriptedLoadableModule import *
 import logging
+import math
 
 #-------------------------------------------------------------------------------
 #
@@ -124,9 +125,9 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
     """Run as few or as many tests as needed here.
     """
     self.setUp()
-    self.test_AutoTransparency1()
+    self.test_AutoTransparency()
 
-  def test_AutoTransparency1(self):
+  def test_AutoTransparency(self):
     self.delayDisplay("Starting the test")
 
     #Create a cautery model
@@ -154,6 +155,7 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
     #Create a sphere tumor model
     tumorModelNode = slicer.modules.createmodels.logic().CreateSphere(10)
     tumorModelNode.GetDisplayNode().SetColor(0,1,0) #Green
+    tumorModelNode.SetName('TumorModel')
 
     #Create transform node and set transform of transform node
     tumorModelToRas = slicer.vtkMRMLLinearTransformNode()
@@ -164,4 +166,73 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
 
     #Transform the tumor model
     tumorModelNode.SetAndObserveTransformNodeID(tumorModelToRas.GetID())
+
+    #Compute the center of mass of the target model node
+    tumorModel = slicer.mrmlScene.GetNodeByID('vtkMRMLModelNode5')
+    tumorModelPolydata = tumorModel.GetPolyData()
+    centerFilter = vtk.vtkCenterOfMass()
+    centerFilter.SetInputData(tumorModelPolydata)
+    centerFilter.SetUseScalarsAsWeights(False)
+    centerFilter.Update()
+
+    #Transform center to RAS coordinate system
+    center = []
+    for i,val in enumerate(centerFilter.GetCenter()):
+      center.append(val)
+
+    center.append(1.0)
+    tumorModelToRas_transformNode = slicer.mrmlScene.GetNodeByID('vtkMRMLLinearTransformNode5')
+    tumorModelToRas_vtkMatrix = vtk.vtkMatrix4x4()
+    tumorModelToRas_transformNode.GetMatrixTransformToParent(tumorModelToRas_vtkMatrix)
+    tumorModelToRas_vtkMatrix.MultiplyPoint(center,center)
+    center.remove(1.0)
+    print "Center of mass in RAS: ", center
+
+    #Get the camera node's position
+    cam = slicer.util.getNode('vtkMRMLCameraNode1')
+    pos = [0.0,0.0,0.0]
+    cam.GetPosition(pos)
+    print "Camera position: ", pos
+
+    #Find dMax
+    dMax = 0
+    numPoints = tumorModelPolydata.GetNumberOfPoints()
+    pointTupleArray = []
+    #Create array of all points that make up the model
+    for point in range(numPoints):
+      pointTupleArray.append(tumorModelPolydata.GetPoint(point))
+
+    for point in pointTupleArray:
+      dist = math.sqrt(vtk.vtkMath.Distance2BetweenPoints(point,center))
+      if (dist > dMax):
+        dMax = dist
+
+    #Find the angle, α
+    l = math.sqrt(vtk.vtkMath.Distance2BetweenPoints(pos,center))
+    alpha = math.asin(dMax/l)
+
+    #Find the radius of the cone, based on triangle 2
+    height = l
+    radius = (math.tan(alpha))*(height)
+
+    #Create a model of the cone and visualize it in the scene
+    cone = vtk.vtkConeSource()
+    cone.SetRadius(radius)
+    cone.SetHeight(height)
+    cone.SetCenter(center)
+    cone.SetResolution(10)
+
+    coneModelNode = slicer.vtkMRMLModelNode()
+    slicer.mrmlScene.AddNode(coneModelNode)
+    coneModelNode.SetName('ConeModel')
+    coneModelNodeToUpdate = coneModelNode
+    cone.Update()
+    coneModelNodeToUpdate.SetAndObservePolyData(cone.GetOutput())
+
+    if coneModelNodeToUpdate.GetDisplayNode() is None:
+      displayNode = slicer.vtkMRMLModelDisplayNode()
+      slicer.mrmlScene.AddNode(displayNode)
+      displayNode.SetName('ConeModelDisplay')
+      coneModelNodeToUpdate.SetAndObserveDisplayNodeID(displayNode.GetID())
+    
     self.delayDisplay('Test passed!')
