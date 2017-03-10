@@ -95,6 +95,13 @@ class AutoTransparencyWidget(ScriptedLoadableModuleWidget):
     self.enableAutoTransparencyFlagCheckBox.setToolTip("If checked, enable AutoTransparency.")
     parametersFormLayout.addRow("Enable AutoTransparency", self.enableAutoTransparencyFlagCheckBox)
 
+    #
+    # Label to display if collisions are occuring or not
+    #
+    self.collisionWarningLabel = qt.QLabel("No models currently specified.")
+    self.collisionWarningLabel.setStyleSheet('color: grey')
+    self.layout.addWidget(self.collisionWarningLabel)
+
     # Add vertical spacer
     self.layout.addStretch(1)
 
@@ -247,6 +254,36 @@ class AutoTransparencyLogic(ScriptedLoadableModuleLogic):
     fidPairThree = FiducialPairThree(perpendicularPointCone, perpendicularPointRAS)
     return fidPairThree
 
+  def setUpCollisionDetection(self,coneModel, movingModel,coneModelToRAS,movingModelToRAS):
+    #Set up VTK collision detection from Slicer RT
+    #Note:  Models are assumed to not be nested underneath each other in the transform hierarchy
+    from vtkSlicerRtCommonPython import vtkCollisionDetectionFilter
+    self.coneMovingModelCollisionDetection = vtkCollisionDetectionFilter()
+    self.coneMovingModelCollisionDetection.SetInput(0, coneModel.GetPolyData())
+    self.coneMovingModelCollisionDetection.SetInput(1, movingModel.GetPolyData())
+    self.coneMovingModelCollisionDetection.SetMatrix(0, coneModelToRAS)
+    self.coneMovingModelCollisionDetection.SetMatrix(1, movingModelToRAS)
+    self.coneMovingModelCollisionDetection.Update()
+
+  def onCameraPositionChanged(self):
+    self.checkForCollisions()
+
+  def onMovingModelPositionChanged(self):
+    self.checkForCollisions()
+
+  def checkForCollisions(self):
+    self.coneMovingModelCollisionDetection.Update()
+    text = " "
+    if self.coneMovingModelCollisionDetection.GetNumberOfContacts() > 0:
+      text = text + "Collision detected between moving model and cone bounding target model!"
+
+    if len(text) > 0:
+      self.collisionWarningLabel.setText(text)
+      self.collisionWarningLabel.setStyleSheet('color: red')
+    elif len(text) == 0:
+      self.collisionWarningLabel.setText("No collisions detected!")
+      self.collisionWarningLabel.setStyleSheet('color: green')
+
 #-------------------------------------------------------------------------------
 #
 # AutoTransparencyTest
@@ -277,18 +314,18 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
     self.cauteryModelNode.GetDisplayNode().SliceIntersectionVisibilityOn()
 
     #Create transform node and set transform of transform node
-    cauteryModelToRas = slicer.vtkMRMLLinearTransformNode()
-    cauteryModelToRas.SetName('CauteryModelToRas')
-    slicer.mrmlScene.AddNode(cauteryModelToRas)
-    cauteryModelToRasTransform = vtk.vtkTransform()
-    cauteryModelToRasTransform.PreMultiply()
-    cauteryModelToRasTransform.Translate(0, 100, 0)
-    cauteryModelToRasTransform.RotateX(30)
-    cauteryModelToRasTransform.Update()
-    cauteryModelToRas.SetAndObserveTransformToParent(cauteryModelToRasTransform)
+    self.cauteryModelToRAS = slicer.vtkMRMLLinearTransformNode()
+    self.cauteryModelToRAS.SetName('CauteryModelToRAS')
+    slicer.mrmlScene.AddNode(self.cauteryModelToRAS)
+    cauteryModelToRASTransform = vtk.vtkTransform()
+    cauteryModelToRASTransform.PreMultiply()
+    cauteryModelToRASTransform.Translate(0, 100, 0)
+    cauteryModelToRASTransform.RotateX(30)
+    cauteryModelToRASTransform.Update()
+    self.cauteryModelToRAS.SetAndObserveTransformToParent(cauteryModelToRASTransform)
 
-    #Transform the needle model
-    self.cauteryModelNode.SetAndObserveTransformNodeID(cauteryModelToRas.GetID())
+    #Transform the cautery model
+    self.cauteryModelNode.SetAndObserveTransformNodeID(cauteryModelToRAS.GetID())
 
     #Create a sphere tumor model
     self.tumorModelNode = slicer.modules.createmodels.logic().CreateSphere(10)
@@ -296,14 +333,14 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
     self.tumorModelNode.SetName('TumorModel')
 
     #Create transform node and set transform of transform node
-    tumorModelToRas = slicer.vtkMRMLLinearTransformNode()
-    tumorModelToRas.SetName('tumorModelToRas')
-    slicer.mrmlScene.AddNode(tumorModelToRas)
-    tumorModelToRasTransform = vtk.vtkTransform()
-    tumorModelToRas.SetAndObserveTransformToParent(tumorModelToRasTransform)
+    self.tumorModelToRAS = slicer.vtkMRMLLinearTransformNode()
+    self.tumorModelToRAS.SetName('tumorModelToRAS')
+    slicer.mrmlScene.AddNode(self.tumorModelToRAS)
+    tumorModelToRASTransform = vtk.vtkTransform()
+    self.tumorModelToRAS.SetAndObserveTransformToParent(tumorModelToRASTransform)
 
     #Transform the tumor model
-    self.tumorModelNode.SetAndObserveTransformNodeID(tumorModelToRas.GetID())
+    self.tumorModelNode.SetAndObserveTransformNodeID(self.tumorModelToRAS.GetID())
 
   def test_NoCollisions(self):
     self.delayDisplay("Starting the test")
@@ -323,10 +360,10 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
       center.append(val)
 
     center.append(1.0)
-    tumorModelToRas_transformNode = slicer.mrmlScene.GetNodeByID('vtkMRMLLinearTransformNode5')
-    tumorModelToRas_vtkMatrix = vtk.vtkMatrix4x4()
-    tumorModelToRas_transformNode.GetMatrixTransformToParent(tumorModelToRas_vtkMatrix)
-    tumorModelToRas_vtkMatrix.MultiplyPoint(center,center)
+    tumorModelToRAS_transformNode = slicer.mrmlScene.GetNodeByID('vtkMRMLLinearTransformNode5')
+    tumorModelToRAS_vtkMatrix = vtk.vtkMatrix4x4()
+    tumorModelToRAS_transformNode.GetMatrixTransformToParent(tumorModelToRAS_vtkMatrix)
+    tumorModelToRAS_vtkMatrix.MultiplyPoint(center,center)
     center.remove(1.0)
     print "Center of mass in RAS: ", center
 
