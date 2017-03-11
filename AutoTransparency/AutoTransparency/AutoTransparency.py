@@ -115,6 +115,10 @@ class AutoTransparencyWidget(ScriptedLoadableModuleWidget):
 #-------------------------------------------------------------------------------
 
 class AutoTransparencyLogic(ScriptedLoadableModuleLogic):
+  #
+  # Draw cone around target model
+  #
+
   def computeCenterOfMass(self, modelPolyData):
     centerFilter = vtk.vtkCenterOfMass()
     centerFilter.SetInputData(modelPolyData)
@@ -229,30 +233,68 @@ class AutoTransparencyLogic(ScriptedLoadableModuleLogic):
     fidList = slicer.util.getNode('F')
     fidList.SetNthFiducialLabel(1, 'Cone Base Center')
 
+  #
+  # Set up and perform landmark registration
+  #
+
   def computeThirdPointsForLandmarkRegistration(self, cameraPosition, coneTip):
     '''
     Create a point perpendicular to conetip-axis
     '''
+    markupsLogic = slicer.modules.markups.logic()
+    markupsLogic.SetDefaultMarkupsDisplayNodeGlyphScale(5.0)
+    markupsLogic.SetDefaultMarkupsDisplayNodeColor(0.0, 0.0, 0.0)
+    markupsLogic.SetDefaultMarkupsDisplayNodeSelectedColor(0.0, 0.0, 0.0)
+    markupsLogic.AddNewFiducialNode()
+
     pointCoplanarToConeTip = (coneTip[0], coneTip[1] + 100 , coneTip[2]) #Add arbitrary distance along plane
-    #markupsLogic.AddFiducial(pointCoplanarToConeTip[0],pointCoplanarToConeTip[1],pointCoplanarToConeTip[2])
+    markupsLogic.AddFiducial(pointCoplanarToConeTip[0],pointCoplanarToConeTip[1],pointCoplanarToConeTip[2])
     midpointOfConeTipLine = ((coneTip[0] + pointCoplanarToConeTip[0])/2 , (coneTip[1] + pointCoplanarToConeTip[1])/2, (coneTip[2] + pointCoplanarToConeTip[2])/2)
-    #markupsLogic.AddFiducial(midpointOfConeTipLine[0],midpointOfConeTipLine[1],midpointOfConeTipLine[2])
+    markupsLogic.AddFiducial(midpointOfConeTipLine[0],midpointOfConeTipLine[1],midpointOfConeTipLine[2])
     perpendicularPointCone = (midpointOfConeTipLine[0], midpointOfConeTipLine[1], midpointOfConeTipLine[2] + 100)
-    #markupsLogic.AddFiducial(perpendicularPoint[0],perpendicularPoint[1],perpendicularPoint[2])
+    markupsLogic.AddFiducial(perpendicularPointCone[0],perpendicularPointCone[1],perpendicularPointCone[2])
     '''
     Create a point perpendicular to camera-position axis, in the same way as above
     '''
     pointCoplanarToCameraPosition = (cameraPosition[0], cameraPosition[1] + 100 , cameraPosition[2]) #Add arbitrary distance along plane
-    #markupsLogic.AddFiducial(pointCoplanarToCameraPosition[0],pointCoplanarToCameraPosition[1],pointCoplanarToCameraPosition[2])
+    markupsLogic.AddFiducial(pointCoplanarToCameraPosition[0],pointCoplanarToCameraPosition[1],pointCoplanarToCameraPosition[2])
     midpointOfCameraPositionLine = ((cameraPosition[0] + pointCoplanarToCameraPosition[0])/2 , (cameraPosition[1] + pointCoplanarToCameraPosition[1])/2, (cameraPosition[2] + pointCoplanarToCameraPosition[2])/2)
-    #markupsLogic.AddFiducial(midpointOfCameraPositionLine[0],midpointOfCameraPositionLine[1],midpointOfCameraPositionLine[2])
+    markupsLogic.AddFiducial(midpointOfCameraPositionLine[0],midpointOfCameraPositionLine[1],midpointOfCameraPositionLine[2])
     perpendicularPointRAS = (midpointOfCameraPositionLine[0], midpointOfCameraPositionLine[1], midpointOfCameraPositionLine[2] + 100)
-    #markupsLogic.AddFiducial(perpendicularPoint[0],perpendicularPoint[1],perpendicularPoint[2])
+    markupsLogic.AddFiducial(perpendicularPointRAS[0],perpendicularPointRAS[1],perpendicularPointRAS[2])
+    print perpendicularPointRAS
 
     #Return third point pair as a named tuple
     FiducialPairThree = collections.namedtuple('FiducialPairThree', ['perpendicularPointCone', 'perpendicularPointRAS'])
     fidPairThree = FiducialPairThree(perpendicularPointCone, perpendicularPointRAS)
     return fidPairThree
+
+  def performLandmarkRegistion(self, fromFiducialsNode, toFiducialsNode, outputTransformNode):
+    # Initialize fiducial registration wizard node
+    fiducialRegistrationWizardNode = slicer.vtkMRMLFiducialRegistrationWizardNode()
+    slicer.mrmlScene.AddNode(fiducialRegistrationWizardNode)
+    fiducialRegistrationLogic = slicer.modules.fiducialregistrationwizard.logic()
+    fiducialRegistrationWizardNode.SetRegistrationModeToRigid()
+    fiducialRegistrationWizardNode.SetAndObserveFromFiducialListNodeId(fromFiducialsNode.GetID())
+    fiducialRegistrationWizardNode.SetAndObserveToFiducialListNodeId(toFiducialsNode.GetID())
+    fiducialRegistrationWizardNode.SetOutputTransformNodeId(outputTransformNode.GetID())
+
+    # Add fiducials where ...
+    #   Fiducial pair 1 -- Cone tip & camera position
+    #   Fiducial pair 2 -- Center of cone base & target model center of mass (COM)
+    #   Fiducial pair 3 -- Perpendicular points to tip-camera axis and base-modelCOM axis
+    fiducialRegistrationLogic.AddFiducial(fromFiducialsNode.GetNthFiducial(0), toFiducialsNode.GetNthFiducial(0))
+    fiducialRegistrationLogic.AddFiducial(fromFiducialsNode.GetNthFiducial(1), toFiducialsNode.GetNthFiducial(1))
+    fiducialRegistrationLogic.AddFiducial(fromFiducialsNode.GetNthFiducial(2), toFiducialsNode.GetNthFiducial(2))
+
+    # Update calibration
+    fiducialRegistrationLogic.UpdateCalibration(fiducialRegistrationWizardNode)
+
+    return outputTransformNode
+
+  #
+  # Set up and perform collision detection
+  #
 
   def setUpCollisionDetection(self,coneModel, movingModel,coneModelToRAS,movingModelToRAS):
     #Set up VTK collision detection from Slicer RT
@@ -264,8 +306,10 @@ class AutoTransparencyLogic(ScriptedLoadableModuleLogic):
     self.coneMovingModelCollisionDetection.SetMatrix(0, coneModelToRAS)
     self.coneMovingModelCollisionDetection.SetMatrix(1, movingModelToRAS)
     self.coneMovingModelCollisionDetection.Update()
+    return self.coneMovingModelCollisionDetection
 
   def onCameraPositionChanged(self):
+    #TODO: Figure out how to adaptively redraw cone
     self.checkForCollisions()
 
   def onMovingModelPositionChanged(self):
@@ -325,7 +369,7 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
     self.cauteryModelToRAS.SetAndObserveTransformToParent(cauteryModelToRASTransform)
 
     #Transform the cautery model
-    self.cauteryModelNode.SetAndObserveTransformNodeID(cauteryModelToRAS.GetID())
+    self.cauteryModelNode.SetAndObserveTransformNodeID(self.cauteryModelToRAS.GetID())
 
     #Create a sphere tumor model
     self.tumorModelNode = slicer.modules.createmodels.logic().CreateSphere(10)
@@ -344,17 +388,17 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
 
   def test_NoCollisions(self):
     self.delayDisplay("Starting the test")
-    #Create models of needle and cautery, in a position that does not represent
-    #collision
+    # Create models of needle and cautery, in a position that does not represent
+    # collision
     self.createSampleModels_NoCollisions()
 
-    #Compute the center of mass of the target model node
-    tumorModel = slicer.mrmlScene.GetNodeByID('vtkMRMLModelNode5')
-    tumorModelPolyData = tumorModel.GetPolyData()
+    # Compute the center of mass of the target model node
+    tumorModelNode = slicer.mrmlScene.GetNodeByID('vtkMRMLModelNode5')
+    tumorModelPolyData = tumorModelNode.GetPolyData()
     testingLogic = AutoTransparencyLogic()
     centerFilter = testingLogic.computeCenterOfMass(tumorModelPolyData)
 
-    #Transform center to RAS coordinate system
+    # Transform center to RAS coordinate system
     center = []
     for i,val in enumerate(centerFilter.GetCenter()):
       center.append(val)
@@ -367,30 +411,73 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
     center.remove(1.0)
     print "Center of mass in RAS: ", center
 
-    #Get the camera node's position
+    # Get the camera node's position
     cameraPosition = testingLogic.getCameraPosition()
     print "Camera position: ", cameraPosition
 
-    #Find cone dimensions
+    # Find cone dimensions
     coneDimensions = testingLogic.computeConeDimensions(tumorModelPolyData, center, cameraPosition)
 
-    #Create a model of the cone and visualize it in the scene
+    # Create a model of the cone and visualize it in the scene
     resolution = 10
     coneSource = testingLogic.createConeSource(coneDimensions, center, resolution)
     coneModelNode = testingLogic.drawCone(coneSource, coneDimensions, center)
 
-    #Find the tip of cone and the center of the base of the cone, points which
-    #will be used as inputs for the landmark registration
+    # Find the tip of cone and the center of the base of the cone, points which
+    # will be used as inputs for the landmark registration
     coneTip = testingLogic.getConeTip(coneModelNode)
 
-    #Compute center of mass of points of cone base
+    # Compute center of mass of points of cone base
     coneBaseCenter = testingLogic.getCenterOfConeBase(coneSource, coneModelNode)
 
-    #Create a third point for use in landmark registration, perpendicular to a
-    #line drawn in the AP plane of the cone tip
+    # Create a third point for use in landmark registration, perpendicular to a
+    # line drawn in the AP plane of the cone tip
     pointPairThree = testingLogic.computeThirdPointsForLandmarkRegistration(cameraPosition, coneTip)
 
-    #TODO: Compute landmark registration
+    #TODO: Compute landmark registration to get coneModelToRAS transform
+    coneModelFiducialsNode = slicer.vtkMRMLFiducialListNode()
+    coneModelFiducialsNode.AddFiducialWithLabelXYZSelectedVisibility('coneTip', \
+                                                                      coneTip[0], \
+                                                                      coneTip[1], \
+                                                                      coneTip[2], \
+                                                                      0, \
+                                                                      0)
+    coneModelFiducialsNode.AddFiducialWithLabelXYZSelectedVisibility('centerConeBase', \
+                                                                      coneBaseCenter[0], \
+                                                                      coneBaseCenter[1], \
+                                                                      coneBaseCenter[2], \
+                                                                      0, \
+                                                                      0)
+    coneModelFiducialsNode.AddFiducialWithLabelXYZSelectedVisibility('perpendicularPointConeAxis', \
+                                                                      pointPairThree.perpendicularPointCone[0], \
+                                                                      pointPairThree.perpendicularPointCone[1], \
+                                                                      pointPairThree.perpendicularPointCone[2], \
+                                                                      0, \
+                                                                      0)
+
+    rasFiducialsNode = slicer.vtkMRMLFiducialListNode()
+    rasFiducialsNode.AddFiducialWithLabelXYZSelectedVisibility('cameraPosition', \
+                                                                cameraPosition[0], \
+                                                                cameraPosition[1], \
+                                                                cameraPosition[2], \
+                                                                0, \
+                                                                0)
+    rasFiducialsNode.AddFiducialWithLabelXYZSelectedVisibility('modelCOM', \
+                                                                center[0], \
+                                                                center[1], \
+                                                                center[2], \
+                                                                0, \
+                                                                0)
+    rasFiducialsNode.AddFiducialWithLabelXYZSelectedVisibility('perpendicularPointRAS', \
+                                                                pointPairThree.perpendicularPointRAS[0], \
+                                                                pointPairThree.perpendicularPointRAS[1], \
+                                                                pointPairThree.perpendicularPointRAS[2], \
+                                                                0, \
+                                                                0)
+    coneModelToRAS = testingLogic.performLandmarkRegistion(coneModelFiducialsNode, rasFiducialsNode, coneModelToRAS)
 
     #TODO: Check if collision is occcuring
+    coneCauteryCollisionDetectionFilter = \
+    testingLogic.setUpCollisionDetection(coneModelNode, tumorModelNode, coneModelToRAS, movingModelToRAS)
+
     self.delayDisplay('Non-collision test passed!')
