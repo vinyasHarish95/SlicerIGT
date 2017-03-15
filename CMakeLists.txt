@@ -41,6 +41,8 @@ add_subdirectory(UltrasoundSnapshots)
 add_subdirectory(VolumeResliceDriver)
 add_subdirectory(PlusModelCatalogBrowser)
 add_subdirectory(Viewpoint)
+add_subdirectory(test)
+add_subdirectory(test)
 ## NEXT_MODULE
 if(SLICERIGT_ENABLE_EXPERIMENTAL_MODULES)
   add_subdirectory(Experimental)
