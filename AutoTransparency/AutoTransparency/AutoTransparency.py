@@ -223,6 +223,7 @@ class AutoTransparencyLogic(ScriptedLoadableModuleLogic):
     coneBaseCenter_x = xSum / coneSource.GetResolution()
     coneBaseCenter_y = ySum / coneSource.GetResolution()
     coneBaseCenter_z = zSum / coneSource.GetResolution()
+    coneBaseCenter = (coneBaseCenter_x, coneBaseCenter_y, coneBaseCenter_z)
 
     #Place fiducial at cone base
     markupsLogic = slicer.modules.markups.logic()
@@ -232,6 +233,8 @@ class AutoTransparencyLogic(ScriptedLoadableModuleLogic):
     markupsLogic.AddFiducial(coneBaseCenter_x, coneBaseCenter_y, coneBaseCenter_z)
     fidList = slicer.util.getNode('F')
     fidList.SetNthFiducialLabel(1, 'Cone Base Center')
+
+    return coneBaseCenter
 
   #
   # Set up and perform landmark registration
@@ -426,16 +429,23 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
     # Find the tip of cone and the center of the base of the cone, points which
     # will be used as inputs for the landmark registration
     coneTip = testingLogic.getConeTip(coneModelNode)
+    print "coneTip"
+    print coneTip
 
     # Compute center of mass of points of cone base
     coneBaseCenter = testingLogic.getCenterOfConeBase(coneSource, coneModelNode)
+    print "coneBaseCenter"
+    print coneBaseCenter
 
     # Create a third point for use in landmark registration, perpendicular to a
     # line drawn in the AP plane of the cone tip
     pointPairThree = testingLogic.computeThirdPointsForLandmarkRegistration(cameraPosition, coneTip)
 
     #TODO: Compute landmark registration to get coneModelToRAS transform
+    coneModelToRAS = slicer.vtkMRMLLinearTransformNode()
+    coneModelToRAS.SetName("coneModelToRAS")
     coneModelFiducialsNode = slicer.vtkMRMLFiducialListNode()
+    #BUG Something is wrong here with the ability to add fiducials to a fidListNode
     coneModelFiducialsNode.AddFiducialWithLabelXYZSelectedVisibility('coneTip', \
                                                                       coneTip[0], \
                                                                       coneTip[1], \
