@@ -6,6 +6,7 @@ import logging
 import math
 import collections
 import numpy as np
+import time
 
 #-------------------------------------------------------------------------------
 #
@@ -43,6 +44,7 @@ class AutoTransparencyWidget(ScriptedLoadableModuleWidget):
 
   def setup(self):
     ScriptedLoadableModuleWidget.setup(self)
+    self.logic = AutoTransparencyLogic()
 
     # Instantiate and connect widgets ...
 
@@ -104,6 +106,8 @@ class AutoTransparencyWidget(ScriptedLoadableModuleWidget):
 
     # Add vertical spacer
     self.layout.addStretch(1)
+
+    self.logic.autotransparencyWidget = self
 
   def cleanup(self):
     pass
@@ -273,41 +277,58 @@ class AutoTransparencyLogic(ScriptedLoadableModuleLogic):
     return fidPairThree
 
   def performLandmarkRegistion(self, fromFiducialsNode, toFiducialsNode, outputTransformNode):
-    # Initialize fiducial registration wizard node
-    fiducialRegistrationWizardNode = slicer.vtkMRMLFiducialRegistrationWizardNode()
-    slicer.mrmlScene.AddNode(fiducialRegistrationWizardNode)
-    fiducialRegistrationLogic = slicer.modules.fiducialregistrationwizard.logic()
-    fiducialRegistrationWizardNode.SetRegistrationModeToRigid()
-    fiducialRegistrationWizardNode.SetAndObserveFromFiducialListNodeId(fromFiducialsNode.GetID())
-    fiducialRegistrationWizardNode.SetAndObserveToFiducialListNodeId(toFiducialsNode.GetID())
-    fiducialRegistrationWizardNode.SetOutputTransformNodeId(outputTransformNode.GetID())
+    fromPoints = vtk.vtkPoints()
+    toPoints = vtk.vtkPoints()
 
-    # Add fiducials where ...
-    #   Fiducial pair 1 -- Cone tip & camera position
-    #   Fiducial pair 2 -- Center of cone base & target model center of mass (COM)
-    #   Fiducial pair 3 -- Perpendicular points to tip-camera axis and base-modelCOM axis
-    fiducialRegistrationLogic.AddFiducial(fromFiducialsNode.GetNthFiducial(0), toFiducialsNode.GetNthFiducial(0))
-    fiducialRegistrationLogic.AddFiducial(fromFiducialsNode.GetNthFiducial(1), toFiducialsNode.GetNthFiducial(1))
-    fiducialRegistrationLogic.AddFiducial(fromFiducialsNode.GetNthFiducial(2), toFiducialsNode.GetNthFiducial(2))
+    nFrom = fromFiducialsNode.GetNumberOfFiducials()
+    nTo = toFiducialsNode.GetNumberOfFiducials()
 
-    # Update calibration
-    fiducialRegistrationLogic.UpdateCalibration(fiducialRegistrationWizardNode)
+    if nFrom != nTo:
+      logging.error('Number of fiducials in lists are not equal.')
+      return
 
-    return outputTransformNode
+    for i in range(nFrom):
+      p = [0, 0, 0]
+      fromFiducialsNode.GetNthFiducialPosition(i, p)
+      fromPoints.InsertNextPoint( p )
+      toFiducialsNode.GetNthFiducialPosition(i, p)
+      toPoints.InsertNextPoint( p )
+
+    lt = vtk.vtkLandmarkTransform()
+    lt.SetSourceLandmarks(fromPoints)
+    lt.SetTargetLandmarks(toPoints)
+    lt.SetModeToRigidBody()
+    lt.Update()
+    m = vtk.vtkMatrix4x4()
+    lt.GetMatrix(m)
+
+    #Check for stability of registration
+    det = m.Determinant()
+    if det < 1e-8:
+      logging.error('Unstable registration. Check input for collinear points.')
+      return
+
+    outputTransformNode.SetMatrixTransformToParent(m)
+
 
   #
   # Set up and perform collision detection
   #
 
   def setUpCollisionDetection(self,coneModel, movingModel,coneModelToRAS,movingModelToRAS):
-    #Set up VTK collision detection from Slicer RT
-    #Note:  Models are assumed to not be nested underneath each other in the transform hierarchy
+    # Set up VTK collision detection from Slicer RT
+    # Note:  Models are assumed to not be nested underneath each other in the transform hierarchy
+    coneModelToRAS_matrix4x4 = vtk.vtkMatrix4x4()
+    movingModelToRAS_matrix4x4 = vtk.vtkMatrix4x4()
+    coneModelToRAS.GetMatrixTransformToParent(coneModelToRAS_matrix4x4)
+    movingModelToRAS.GetMatrixTransformToParent(movingModelToRAS_matrix4x4)
+
     from vtkSlicerRtCommonPython import vtkCollisionDetectionFilter
     self.coneMovingModelCollisionDetection = vtkCollisionDetectionFilter()
     self.coneMovingModelCollisionDetection.SetInput(0, coneModel.GetPolyData())
     self.coneMovingModelCollisionDetection.SetInput(1, movingModel.GetPolyData())
-    self.coneMovingModelCollisionDetection.SetMatrix(0, coneModelToRAS)
-    self.coneMovingModelCollisionDetection.SetMatrix(1, movingModelToRAS)
+    self.coneMovingModelCollisionDetection.SetMatrix(0, coneModelToRAS_matrix4x4)
+    self.coneMovingModelCollisionDetection.SetMatrix(1, movingModelToRAS_matrix4x4)
     self.coneMovingModelCollisionDetection.Update()
     return self.coneMovingModelCollisionDetection
 
@@ -320,16 +341,21 @@ class AutoTransparencyLogic(ScriptedLoadableModuleLogic):
 
   def checkForCollisions(self):
     self.coneMovingModelCollisionDetection.Update()
-    text = " "
-    if self.coneMovingModelCollisionDetection.GetNumberOfContacts() > 0:
+    text = ""
+    numContacts = self.coneMovingModelCollisionDetection.GetNumberOfContacts()
+    if numContacts > 0:
       text = text + "Collision detected between moving model and cone bounding target model!"
 
     if len(text) > 0:
-      self.collisionWarningLabel.setText(text)
-      self.collisionWarningLabel.setStyleSheet('color: red')
+      #self.autotransparencyWidget.collisionWarningLabel.setText(text)
+      #self.autotransparencyWidget.collisionWarningLabel.setStyleSheet('color: red')
+      logging.debug(numContacts)
+      self.delayDisplay('Collision detected between moving model and cone bounding target model!')
     elif len(text) == 0:
-      self.collisionWarningLabel.setText("No collisions detected!")
-      self.collisionWarningLabel.setStyleSheet('color: green')
+      #self.autotransparencyWidget.collisionWarningLabel.setText("No collisions detected!")
+      #self.autotransparencyWidget.collisionWarningLabel.setStyleSheet('color: green')
+      logging.debug(numContacts)
+      self.delayDisplay('No collisions detected!')
 
 #-------------------------------------------------------------------------------
 #
@@ -344,15 +370,13 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
     """Run as few or as many tests as needed here.
     """
     self.setUp()
-    self.test_NoCollisions()
-    #if true:
-      #slicer.mrmlScene.Clear(0)
-    #self.test_Collisions()
-    #if true:
-      #slicer.mrmlScene.Clear(0)
+    testBool = self.test_NoCollisions()
+    if testBool is True:
+      slicer.mrmlScene.Clear(0)
+      testBool = self.test_Collisions()
 
   def createSampleModels_NoCollisions(self):
-    #Create a cautery model
+    # Create a cautery model
     moduleDirectoryPath = slicer.modules.autotransparency.path.replace('AutoTransparency.py', '')
     slicer.util.loadModel(qt.QDir.toNativeSeparators(moduleDirectoryPath + 'Resources/CAD/Cautery.stl'))
     self.cauteryModelNode = slicer.util.getNode(pattern = "Cautery")
@@ -360,7 +384,7 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
     self.cauteryModelNode.SetName("CauteryModel")
     self.cauteryModelNode.GetDisplayNode().SliceIntersectionVisibilityOn()
 
-    #Create transform node and set transform of transform node
+    # Create transform node and set transform of transform node
     self.cauteryModelToRAS = slicer.vtkMRMLLinearTransformNode()
     self.cauteryModelToRAS.SetName('CauteryModelToRAS')
     slicer.mrmlScene.AddNode(self.cauteryModelToRAS)
@@ -371,22 +395,59 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
     cauteryModelToRASTransform.Update()
     self.cauteryModelToRAS.SetAndObserveTransformToParent(cauteryModelToRASTransform)
 
-    #Transform the cautery model
+    # Transform the cautery model
     self.cauteryModelNode.SetAndObserveTransformNodeID(self.cauteryModelToRAS.GetID())
 
-    #Create a sphere tumor model
+    # Create a sphere tumor model
     self.tumorModelNode = slicer.modules.createmodels.logic().CreateSphere(10)
     self.tumorModelNode.GetDisplayNode().SetColor(0,1,0) #Green
     self.tumorModelNode.SetName('TumorModel')
 
-    #Create transform node and set transform of transform node
+    # Create transform node and set transform of transform node
     self.tumorModelToRAS = slicer.vtkMRMLLinearTransformNode()
     self.tumorModelToRAS.SetName('tumorModelToRAS')
     slicer.mrmlScene.AddNode(self.tumorModelToRAS)
     tumorModelToRASTransform = vtk.vtkTransform()
     self.tumorModelToRAS.SetAndObserveTransformToParent(tumorModelToRASTransform)
 
-    #Transform the tumor model
+    # Transform the tumor model
+    self.tumorModelNode.SetAndObserveTransformNodeID(self.tumorModelToRAS.GetID())
+
+  def createSampleModels_Collisions(self):
+    # Create a cautery model
+    moduleDirectoryPath = slicer.modules.autotransparency.path.replace('AutoTransparency.py', '')
+    slicer.util.loadModel(qt.QDir.toNativeSeparators(moduleDirectoryPath + 'Resources/CAD/Cautery.stl'))
+    self.cauteryModelNode = slicer.util.getNode(pattern = "Cautery")
+    self.cauteryModelNode.GetDisplayNode().SetColor(1.0, 1.0, 0)
+    self.cauteryModelNode.SetName("CauteryModel")
+    self.cauteryModelNode.GetDisplayNode().SliceIntersectionVisibilityOn()
+
+    # Create transform node and set transform of transform node
+    self.cauteryModelToRAS = slicer.vtkMRMLLinearTransformNode()
+    self.cauteryModelToRAS.SetName('CauteryModelToRAS')
+    slicer.mrmlScene.AddNode(self.cauteryModelToRAS)
+    cauteryModelToRASTransform = vtk.vtkTransform()
+    cauteryModelToRASTransform.PreMultiply()
+    cauteryModelToRASTransform.Translate(-31, 0, 34)
+    cauteryModelToRASTransform.Update()
+    self.cauteryModelToRAS.SetAndObserveTransformToParent(cauteryModelToRASTransform)
+
+    # Transform the cautery model
+    self.cauteryModelNode.SetAndObserveTransformNodeID(self.cauteryModelToRAS.GetID())
+
+    # Create a sphere tumor model
+    self.tumorModelNode = slicer.modules.createmodels.logic().CreateSphere(10)
+    self.tumorModelNode.GetDisplayNode().SetColor(0,1,0) #Green
+    self.tumorModelNode.SetName('TumorModel')
+
+    # Create transform node and set transform of transform node
+    self.tumorModelToRAS = slicer.vtkMRMLLinearTransformNode()
+    self.tumorModelToRAS.SetName('tumorModelToRAS')
+    slicer.mrmlScene.AddNode(self.tumorModelToRAS)
+    tumorModelToRASTransform = vtk.vtkTransform()
+    self.tumorModelToRAS.SetAndObserveTransformToParent(tumorModelToRASTransform)
+
+    # Transform the tumor model
     self.tumorModelNode.SetAndObserveTransformNodeID(self.tumorModelToRAS.GetID())
 
   def test_NoCollisions(self):
@@ -441,11 +502,11 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
     # line drawn in the AP plane of the cone tip
     pointPairThree = testingLogic.computeThirdPointsForLandmarkRegistration(cameraPosition, coneTip)
 
-    #TODO: Compute landmark registration to get coneModelToRAS transform
+
     coneModelToRAS = slicer.vtkMRMLLinearTransformNode()
     coneModelToRAS.SetName("coneModelToRAS")
     coneModelFiducialsNode = slicer.vtkMRMLFiducialListNode()
-    #BUG Something is wrong here with the ability to add fiducials to a fidListNode
+
     coneModelFiducialsNode.AddFiducialWithLabelXYZSelectedVisibility('coneTip', \
                                                                       coneTip[0], \
                                                                       coneTip[1], \
@@ -484,10 +545,125 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
                                                                 pointPairThree.perpendicularPointRAS[2], \
                                                                 0, \
                                                                 0)
-    coneModelToRAS = testingLogic.performLandmarkRegistion(coneModelFiducialsNode, rasFiducialsNode, coneModelToRAS)
+    testingLogic.performLandmarkRegistion(coneModelFiducialsNode, rasFiducialsNode, coneModelToRAS)
+    slicer.mrmlScene.AddNode(coneModelToRAS)
+    coneModelNode.SetAndObserveTransformNodeID(coneModelToRAS.GetID())
 
-    #TODO: Check if collision is occcuring
+    # Check if collision is occcuring
+    cauteryModelNode = slicer.mrmlScene.GetNodeByID('vtkMRMLModelNode4')
     coneCauteryCollisionDetectionFilter = \
-    testingLogic.setUpCollisionDetection(coneModelNode, tumorModelNode, coneModelToRAS, movingModelToRAS)
+    testingLogic.setUpCollisionDetection(coneModelNode, cauteryModelNode, coneModelToRAS, self.cauteryModelToRAS)
+    testingLogic.checkForCollisions()
 
     self.delayDisplay('Non-collision test passed!')
+    testBool = True
+    return testBool
+
+  def test_Collisions(self):
+    self.delayDisplay("Starting the test")
+    # Create models of needle and cautery, in a position that does not represent
+    # collision
+    self.createSampleModels_Collisions()
+
+    # Compute the center of mass of the target model node
+    tumorModelNode = slicer.mrmlScene.GetNodeByID('vtkMRMLModelNode5')
+    tumorModelPolyData = tumorModelNode.GetPolyData()
+    testingLogic = AutoTransparencyLogic()
+    centerFilter = testingLogic.computeCenterOfMass(tumorModelPolyData)
+
+    # Transform center to RAS coordinate system
+    center = []
+    for i,val in enumerate(centerFilter.GetCenter()):
+      center.append(val)
+
+    center.append(1.0)
+    tumorModelToRAS_transformNode = slicer.mrmlScene.GetNodeByID('vtkMRMLLinearTransformNode5')
+    tumorModelToRAS_vtkMatrix = vtk.vtkMatrix4x4()
+    tumorModelToRAS_transformNode.GetMatrixTransformToParent(tumorModelToRAS_vtkMatrix)
+    tumorModelToRAS_vtkMatrix.MultiplyPoint(center,center)
+    center.remove(1.0)
+    print "Center of mass in RAS: ", center
+
+    # Get the camera node's position
+    cameraPosition = testingLogic.getCameraPosition()
+    print "Camera position: ", cameraPosition
+
+    # Find cone dimensions
+    coneDimensions = testingLogic.computeConeDimensions(tumorModelPolyData, center, cameraPosition)
+
+    # Create a model of the cone and visualize it in the scene
+    resolution = 10
+    coneSource = testingLogic.createConeSource(coneDimensions, center, resolution)
+    coneModelNode = testingLogic.drawCone(coneSource, coneDimensions, center)
+
+    # Find the tip of cone and the center of the base of the cone, points which
+    # will be used as inputs for the landmark registration
+    coneTip = testingLogic.getConeTip(coneModelNode)
+    print "coneTip"
+    print coneTip
+
+    # Compute center of mass of points of cone base
+    coneBaseCenter = testingLogic.getCenterOfConeBase(coneSource, coneModelNode)
+    print "coneBaseCenter"
+    print coneBaseCenter
+
+    # Create a third point for use in landmark registration, perpendicular to a
+    # line drawn in the AP plane of the cone tip
+    pointPairThree = testingLogic.computeThirdPointsForLandmarkRegistration(cameraPosition, coneTip)
+
+
+    coneModelToRAS = slicer.vtkMRMLLinearTransformNode()
+    coneModelToRAS.SetName("coneModelToRAS")
+    coneModelFiducialsNode = slicer.vtkMRMLFiducialListNode()
+
+    coneModelFiducialsNode.AddFiducialWithLabelXYZSelectedVisibility('coneTip', \
+                                                                      coneTip[0], \
+                                                                      coneTip[1], \
+                                                                      coneTip[2], \
+                                                                      0, \
+                                                                      0)
+    coneModelFiducialsNode.AddFiducialWithLabelXYZSelectedVisibility('centerConeBase', \
+                                                                      coneBaseCenter[0], \
+                                                                      coneBaseCenter[1], \
+                                                                      coneBaseCenter[2], \
+                                                                      0, \
+                                                                      0)
+    coneModelFiducialsNode.AddFiducialWithLabelXYZSelectedVisibility('perpendicularPointConeAxis', \
+                                                                      pointPairThree.perpendicularPointCone[0], \
+                                                                      pointPairThree.perpendicularPointCone[1], \
+                                                                      pointPairThree.perpendicularPointCone[2], \
+                                                                      0, \
+                                                                      0)
+
+    rasFiducialsNode = slicer.vtkMRMLFiducialListNode()
+    rasFiducialsNode.AddFiducialWithLabelXYZSelectedVisibility('cameraPosition', \
+                                                                cameraPosition[0], \
+                                                                cameraPosition[1], \
+                                                                cameraPosition[2], \
+                                                                0, \
+                                                                0)
+    rasFiducialsNode.AddFiducialWithLabelXYZSelectedVisibility('modelCOM', \
+                                                                center[0], \
+                                                                center[1], \
+                                                                center[2], \
+                                                                0, \
+                                                                0)
+    rasFiducialsNode.AddFiducialWithLabelXYZSelectedVisibility('perpendicularPointRAS', \
+                                                                pointPairThree.perpendicularPointRAS[0], \
+                                                                pointPairThree.perpendicularPointRAS[1], \
+                                                                pointPairThree.perpendicularPointRAS[2], \
+                                                                0, \
+                                                                0)
+    testingLogic.performLandmarkRegistion(coneModelFiducialsNode, rasFiducialsNode, coneModelToRAS)
+    slicer.mrmlScene.AddNode(coneModelToRAS)
+    coneModelNode.SetAndObserveTransformNodeID(coneModelToRAS.GetID())
+
+    # Check if collision is occcuring
+    cauteryModelNode = slicer.mrmlScene.GetNodeByID('vtkMRMLModelNode4')
+    coneCauteryCollisionDetectionFilter = \
+    testingLogic.setUpCollisionDetection(coneModelNode, cauteryModelNode, coneModelToRAS, self.cauteryModelToRAS)
+    testingLogic.checkForCollisions()
+
+    self.delayDisplay('Collision test passed!')
+    testBool = True
+    return testBool
