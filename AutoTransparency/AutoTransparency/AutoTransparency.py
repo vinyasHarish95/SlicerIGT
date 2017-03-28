@@ -269,7 +269,7 @@ class AutoTransparencyLogic(ScriptedLoadableModuleLogic):
     markupsLogic.AddFiducial(midpointOfCameraPositionLine[0],midpointOfCameraPositionLine[1],midpointOfCameraPositionLine[2])
     perpendicularPointRAS = (midpointOfCameraPositionLine[0], midpointOfCameraPositionLine[1], midpointOfCameraPositionLine[2] + 100)
     markupsLogic.AddFiducial(perpendicularPointRAS[0],perpendicularPointRAS[1],perpendicularPointRAS[2])
-    print perpendicularPointRAS
+    #print perpendicularPointRAS
 
     #Return third point pair as a named tuple
     FiducialPairThree = collections.namedtuple('FiducialPairThree', ['perpendicularPointCone', 'perpendicularPointRAS'])
@@ -343,6 +343,7 @@ class AutoTransparencyLogic(ScriptedLoadableModuleLogic):
     self.coneMovingModelCollisionDetection.Update()
     text = ""
     numContacts = self.coneMovingModelCollisionDetection.GetNumberOfContacts()
+    print "Number of contacting points: ", numContacts
     if numContacts > 0:
       text = text + "Collision detected between moving model and cone bounding target model!"
 
@@ -473,11 +474,11 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
     tumorModelToRAS_transformNode.GetMatrixTransformToParent(tumorModelToRAS_vtkMatrix)
     tumorModelToRAS_vtkMatrix.MultiplyPoint(center,center)
     center.remove(1.0)
-    print "Center of mass in RAS: ", center
+    #print "Center of mass in RAS: ", center
 
     # Get the camera node's position
     cameraPosition = testingLogic.getCameraPosition()
-    print "Camera position: ", cameraPosition
+    #print "Camera position: ", cameraPosition
 
     # Find cone dimensions
     coneDimensions = testingLogic.computeConeDimensions(tumorModelPolyData, center, cameraPosition)
@@ -490,13 +491,13 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
     # Find the tip of cone and the center of the base of the cone, points which
     # will be used as inputs for the landmark registration
     coneTip = testingLogic.getConeTip(coneModelNode)
-    print "coneTip"
-    print coneTip
+    #print "coneTip"
+    #print coneTip
 
     # Compute center of mass of points of cone base
     coneBaseCenter = testingLogic.getCenterOfConeBase(coneSource, coneModelNode)
-    print "coneBaseCenter"
-    print coneBaseCenter
+    #print "coneBaseCenter"
+    #print coneBaseCenter
 
     # Create a third point for use in landmark registration, perpendicular to a
     # line drawn in the AP plane of the cone tip
@@ -582,11 +583,11 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
     tumorModelToRAS_transformNode.GetMatrixTransformToParent(tumorModelToRAS_vtkMatrix)
     tumorModelToRAS_vtkMatrix.MultiplyPoint(center,center)
     center.remove(1.0)
-    print "Center of mass in RAS: ", center
+    #print "Center of mass in RAS: ", center
 
     # Get the camera node's position
     cameraPosition = testingLogic.getCameraPosition()
-    print "Camera position: ", cameraPosition
+    #print "Camera position: ", cameraPosition
 
     # Find cone dimensions
     coneDimensions = testingLogic.computeConeDimensions(tumorModelPolyData, center, cameraPosition)
@@ -599,13 +600,13 @@ class AutoTransparencyTest(ScriptedLoadableModuleTest):
     # Find the tip of cone and the center of the base of the cone, points which
     # will be used as inputs for the landmark registration
     coneTip = testingLogic.getConeTip(coneModelNode)
-    print "coneTip"
-    print coneTip
+    #print "coneTip"
+    #print coneTip
 
     # Compute center of mass of points of cone base
     coneBaseCenter = testingLogic.getCenterOfConeBase(coneSource, coneModelNode)
-    print "coneBaseCenter"
-    print coneBaseCenter
+    #print "coneBaseCenter"
+    #print coneBaseCenter
 
     # Create a third point for use in landmark registration, perpendicular to a
     # line drawn in the AP plane of the cone tip
